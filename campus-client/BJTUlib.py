@@ -25,8 +25,9 @@ class FUCK():
         self.middle_content = ''
         self.final_content = ''
 
-        self.mail_message = "Seat:" + seatNO + \
-                            "<br>Start at" + time.strftime("%Y-%m-%d %X", time.localtime()) + '<br>'
+        self.mail_message = "<br>Seat: " + seatNO + \
+                            "<br>Start at " + time.strftime("%Y-%m-%d %X", time.localtime()) + \
+                            "<br>self.date_str = " + self.date_str + "<br>"
         self.s = requests.session()  # 创建可传递cookies的会话
 
 
@@ -70,7 +71,8 @@ class FUCK():
         soup = BeautifulSoup(page_content, "html.parser")
         for each in soup.find_all('input'):
             if 'value' in each.attrs and 'name' in each.attrs:
-                _dict[each['name']] = each['value']
+                _dict[each['name']] = each['value']  # 添加到login的post_data中
+                # self.data2[each['name']] = each['value']  # 添加到order的post_data中
         return _dict
 
     def _get_static_get_attr(self, page_content):
@@ -91,18 +93,23 @@ class FUCK():
         seat_str = re.findall(_str1, ans_str[0])
         # print seat_str
 
-        if seat_str[0] == "":
-            self.mail_message += "This seat is taken by others!<br>System exit!<br>"
-            sendmail.send_mail('error text!', self.mail_message, self.mailto)
-            print "This seat is taken by others!\nSystem exit!"
-            sys.exit(0)
-        else:
-            self.mail_message += seat_str[0]
-            self.mail_message += '<br>'
-            return seat_str[0]
+        return seat_str[0]
+
+    def _error_handler(self):
+        sendmail.send_mail('Error Log', self.mail_message, self.mailto)
+        sys.exit(0)
 
     def login(self):
-        homepage_content = self.s.get(self.base_url).content
+
+        homepage_content = self.s.get(self.base_url, timeout=120).content
+        if len(homepage_content) > 10:
+            print "\nGet homepage_content success!\n"
+            self.mail_message += "<br>Get homepage_content success!<br>"
+        else:
+            print "\nGet homepage_content failed!\nSystem exit!\n"
+            self.mail_message += "<br>Get homepage_content failed!<br>System exit"
+            self._error_handler()
+
         data = self._get_static_post_attr(homepage_content)
 
         data['txtUserName'] = self.username
@@ -110,9 +117,15 @@ class FUCK():
         data['cmdOK.x'] = 1
         data['cmdOK.y'] = 1
 
-        r = self.s.post(self.login_url, data)
+        r = self.s.post(self.login_url, data, timeout=120)
         self.login_content = r.content
-        # print r.content
+        if "treeMenu" in self.login_content:
+            print "\nLogin success!\n"
+            self.mail_message += "<br>Login success!<br>"
+        else:
+            print "\nLogin failed!\nplease check your ID and PASSWORD\nSystem exit!\n"
+            self.mail_message += "<br>Login failed!<br>please check your ID and PASSWORD<br>System exit"
+            self._error_handler()
 
     def run(self):
 
@@ -128,21 +141,39 @@ class FUCK():
         self.middle_content = self.s.post(
             middle_url,
             data=data_middle,
-            headers=self.headers
+            headers=self.headers,
+            timeout=120
         ).content
         # print self.middle_content
 
+        if "t101001001" in self.middle_content:
+            print "\nGet [SeatLayoutHandle.ashx] success!\n"
+            self.mail_message += "<br>Get [SeatLayoutHandle.ashx] success!<br>"
+        else:
+            print "\nGet [SeatLayoutHandle.ashx] failed!\n\nSystem exit!\n"
+            self.mail_message += "<br>Get [SeatLayoutHandle.ashx] failed!<br>System exit"
+            self._error_handler()
+
         get_para = self._get_static_get_attr(self.middle_content)
+        print "get_para = " + get_para
+        self.mail_message += "<br>Get_para => " + get_para + "<br>"
+
+        if len(get_para) < 10:
+            print "\nThis seat is taken by others!\nSystem exit!"
+            self.mail_message += "<br>This seat is taken by others!<br>System exit!<br>"
+            self._error_handler()
+        else:
+            pass
 
         self.final_url = self.base_url + "/FunctionPages/SeatBespeak/BespeakSubmitWindow.aspx?parameters=" + get_para
 
-        # 这里校检了referer
         _headers = {
             'Referer': self.base_url + 'FunctionPages/SeatBespeak/BespeakSeatLayout.aspx'
         }
 
-        final_dict = self._get_static_post_attr(self.s.get(self.final_url, headers=_headers).content)
-        print final_dict
+        final_dict = self._get_static_post_attr(self.s.get(self.final_url, headers=_headers, timeout=120).content)
+        # print final_dict
+
         final_dict["__EVENTTARGET"] = "ContentPanel1$btnBespeak"
         final_dict["__EVENTARGUMENT"] = ""
         final_dict["X_CHANGED"] = "false"
@@ -153,26 +184,29 @@ class FUCK():
         final_dict["X_AJAX"] = "true"
 
         self.final_content = self.s.post(
-            self.final_url, data=final_dict, headers=self.headers
+            self.final_url, data=final_dict, headers=self.headers, timeout=120
         ).content
 
-        print self.final_content
+        # print self.final_content
+        if len(self.final_content) < 10:
+            print "no response from the last post\nsystem exit!\n"
+            self.mail_message += "<br>no response from the last post<br>system exit!<br>"
+            self._error_handler()
 
-        is_success = False
         if "X.wnd.getActiveWindow()" in self.final_content:
-            is_success = True
-
-        if is_success:
-            sendmail.send_mail('Get Seat_NO: ' + self.seatNO + ' success!',
-                               self.mail_message, self.mailto)
+            _m = "Get Seat_NO: " + self.seatNO + " success!"
+            print "\n" + _m
+            self.mail_message += "<br>" + _m + "<br>"
+            sendmail.send_mail(_m, self.mail_message, self.mailto)
         else:
-            sendmail.send_mail('Error Log', self.mail_message, self.mailto)
+            self.mail_message += "<br>Final order POST fail!<br>maybe current time is not allowed<br>System exit!<br>"
+            self._error_handler()
 
 
 if __name__ == '__main__':
     if len(sys.argv) < 5:
-        print 'Usage: python BJTUlib.py [username] [password] [seat_NO] [email]'
-        print 'eg. python BJTUlib.py S13280001 123456 003 XXXX@qq.com\n'
+        print 'Usage: python library.py [username] [password] [seat_NO] [email]'
+        print 'eg. python library.py S13280001 123456 003 XXXX@qq.com\n'
         print 'Any problems, mail to: i[at]cdxy.me'
         print '#-*- Edit by cdxy 16.03.24 -*-'
         sys.exit(0)
