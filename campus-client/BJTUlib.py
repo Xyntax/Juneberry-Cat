@@ -23,6 +23,7 @@ class FUCK():
 
         self.login_content = ''
         self.middle_content = ''
+        self.middle_content_timeout = 10
         self.final_content = ''
 
         self.mail_message = "<br>Seat: " + seatNO + \
@@ -71,8 +72,7 @@ class FUCK():
         soup = BeautifulSoup(page_content, "html.parser")
         for each in soup.find_all('input'):
             if 'value' in each.attrs and 'name' in each.attrs:
-                _dict[each['name']] = each['value']  # 添加到login的post_data中
-                # self.data2[each['name']] = each['value']  # 添加到order的post_data中
+                _dict[each['name']] = each['value']
         return _dict
 
     def _get_static_get_attr(self, page_content):
@@ -84,14 +84,11 @@ class FUCK():
         onclick='BespeakSeatClick("2F29783C655A9563339AB02D15E6D524932B751B7D8BD46802F5BDE0A018D003503E2518F9C5AB5225C8425EFC3702B5D3068D5DFD018711A0A9E535A46B81CE27D88419D3F89E0CCDC4033307521FB0")'
         onmouseover='tipShow(this,"可预约")'
         """
-
         _str = re.compile("<div id='101001" + self.seatNO + "'(.*?)</div>")
         ans_str = re.findall(_str, page_content)
-        # print ans_str
 
         _str1 = re.compile("BespeakSeatClick\(\"(.*?)\"\)")
         seat_str = re.findall(_str1, ans_str[0])
-        # print seat_str
 
         return seat_str[0]
 
@@ -138,20 +135,32 @@ class FUCK():
 
         middle_url = self.base_url + "/FunctionPages/SeatBespeak/SeatLayoutHandle.ashx"
 
-        self.middle_content = self.s.post(
-            middle_url,
-            data=data_middle,
-            headers=self.headers,
-            timeout=120
-        ).content
-        # print self.middle_content
 
-        if "t101001001" in self.middle_content:
-            print "\nGet [SeatLayoutHandle.ashx] success!\n"
-            self.mail_message += "<br>Get [SeatLayoutHandle.ashx] success!<br>"
+
+        print "Try to get [SeatLayoutHandle.ashx]..."
+        self.mail_message += "<br>Try to get [SeatLayoutHandle.ashx]...<br>"
+        for i in range(1, 11):
+            __post = self.s.post(
+                middle_url,
+                data=data_middle,
+                headers=self.headers,
+                timeout=self.middle_content_timeout
+            )
+            self.middle_content = __post.content
+
+            print " NO:" + str(i) + " status_code:" + str(__post.status_code) + " time(ms):" + str(__post.elapsed.microseconds) + " content_len:" + str(len(self.middle_content))
+            self.mail_message += " NO:" + str(i) + " status_code:" + str(__post.status_code) + " time(ms):" + str(__post.elapsed.microseconds) + " content_len:" + str(len(self.middle_content)) + "<br>"
+            if "t101001" + self.seatNO in self.middle_content:
+                print "\nGet [SeatLayoutHandle.ashx] success!\n"
+                self.mail_message += "<br>Get [SeatLayoutHandle.ashx] success!<br>"
+                break
+            self.middle_content_timeout +=10
+            print " -failed-"
         else:
             print "\nGet [SeatLayoutHandle.ashx] failed!\n\nSystem exit!\n"
+            # print "\nself.middle_content =>\n" + self.middle_content
             self.mail_message += "<br>Get [SeatLayoutHandle.ashx] failed!<br>System exit"
+            self.mail_message += "<br>self.middle_content = <br><p><pre>" + self.middle_content + "</pre></p>"
             self._error_handler()
 
         get_para = self._get_static_get_attr(self.middle_content)
@@ -187,7 +196,6 @@ class FUCK():
             self.final_url, data=final_dict, headers=self.headers, timeout=120
         ).content
 
-        # print self.final_content
         if len(self.final_content) < 10:
             print "no response from the last post\nsystem exit!\n"
             self.mail_message += "<br>no response from the last post<br>system exit!<br>"
